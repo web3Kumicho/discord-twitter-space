@@ -1,12 +1,12 @@
-import { useState } from 'react'
+import React from 'react';
+import SSOButtons from "./components/SSOButtons";
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
     <main className="">
+      <SSOButtons />
     </main>
-  )
+  );
 }
 
-export default App
+export default App;
