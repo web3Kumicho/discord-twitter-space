@@ -1,33 +1,39 @@
 import React, { useReducer, useEffect } from "react";
 import axios from "axios";
+import { ethers } from "ethers";
 import { useLocation } from "react-router-dom";
 import types from "../data/types.json";
 
+// ! State when coming into the app fresh
 const initialState = {
   account: "",
   discordUrl:
-    "https://discord.com/api/oauth2/authorize?client_id=1019794603605504070&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2Fapi%2Fauth%2Fdiscord%2Fredirect&response_type=code&scope=identify",
+    "https://discord.com/api/oauth2/authorize?client_id=1019447189027688449&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2F&response_type=code&scope=identify",
   discordConnected: false,
   discordCode: "",
-  twitterStepOne:
-    "https://ixgpg9xk7l.execute-api.us-east-2.amazonaws.com/development/oauth2/twitter/token",
-  twitterStepThree:
-    "https://ixgpg9xk7l.execute-api.us-east-2.amazonaws.com/development/oauth2/twitter/lookup",
+  twitterStepOne: "https://793461f8173e.au.ngrok.io/oauth1/twitter/token",
+  twitterStepThree: "https://793461f8173e.au.ngrok.io/oauth/verify",
   twitterUrl: "",
   twitterConnected: false,
   twitterLoginToken: "",
   twitterLoginVerifier: "",
   metamaskConnected: false,
+  spinner: false,
   whitelisted: null,
+  discordUserName: "",
+  twitterUserName: "",
+  submitURL: "https://793461f8173e.au.ngrok.io/submit",
+  claimURL: "https://793461f8173e.au.ngrok.io/claim?username=",
+  twitterId: "",
+  discordRefreshToken: "",
+  submitted: null,
+  whitelisted_two: false,
+  verified: null,
+  pathTwo: false,
+  image: null,
   clicked: false,
   error: "",
 };
-
-// Initial state shows connect to discord
-// discordConnected state shows twitter login button
-// twitterConnected state shows connect w/ metamask button
-// check if they're whitelisted
-// render MM button if they are whitelisted
 
 function reducer(state, action) {
   switch (action.type) {
@@ -37,6 +43,7 @@ function reducer(state, action) {
       return {
         ...state,
         account: action.payload.account,
+        metamaskConnected: true,
       };
     case types.DISCORD_CONNECTED:
       return {
@@ -56,8 +63,41 @@ function reducer(state, action) {
         twitterLoginVerifier: action.payload.twitterLoginVerifier,
         twitterConnected: true,
       };
+    case types.WHITELISTED:
+      return {
+        ...state,
+        whitelisted: action.payload.whitelisted,
+        discordUserName: action.payload.discordUserName,
+        twitterUserName: action.payload.twitterUserName,
+        twitterId: action.payload.twitterId,
+        discordRefreshToken: action.payload.discordRefreshToken,
+        verified: action.payload.verified,
+      };
+    case types.SPIN: {
+      return {
+        ...state,
+        spinner: true,
+      };
+    }
+    case types.DONE_SPINNING:
+      return {
+        ...state,
+        spinner: false,
+      };
     case types.CLICKED:
       return { ...state, clicked: true };
+    case types.SET_IMAGE:
+      return { ...state, image: action.payload.image };
+    case types.PATH_TWO:
+      return { ...state, pathTwo: true };
+    case types.WHITELISTED_TWO:
+      return {
+        ...state,
+        whitelisted_two: action.payload.whitelisted_two,
+        twitterUserName: action.payload.twitterUserName,
+      };
+    case types.SUBMITTED:
+      return { ...state, submitted: action.payload.submitted };
     case types.ERROR:
       return { ...state, error: action.payload, showUI: true };
     default:
@@ -74,16 +114,33 @@ const SSOButtons = () => {
     discordCode,
     twitterStepOne,
     twitterUrl,
+    twitterStepThree,
     twitterConnected,
     twitterLoginToken,
     twitterLoginVerifier,
     metamaskConnected,
     whitelisted,
+    discordUserName,
+    twitterUserName,
+    submitURL,
+    claimURL,
+    twitterId,
+    discordRefreshToken,
+    submitted,
+    verified,
+    image,
+    pathTwo,
+    whitelisted_two,
+    spinner,
     clicked,
     error,
   } = state;
+
+  // ! Parameters
   const getDiscordCode = new URLSearchParams(useLocation().search).get("code");
+  // ! Discord obtained from Local Storage
   const getLSDiscordCode = localStorage.getItem("discord_code");
+  // ! Twitter Params
   const getTwitterToken = new URLSearchParams(useLocation().search).get(
     "oauth_token"
   );
@@ -105,77 +162,14 @@ const SSOButtons = () => {
           type: types.SET_ACCOUNT,
           payload: { account: walletAddress },
         });
+        if (pathTwo) {
+          whitelistedTwo(walletAddress);
+        }
       } catch (err) {
         dispatch({ type: types.ERROR, payload: err });
       }
     }
   };
-
-  // ! Sets up the mint cycle state after connection and reconnects if possible
-  useEffect(() => {
-    if (window.ethereum) {
-      const checkWalletConnected = async () => {
-        if (!window.ethereum) return alert("Please install Metamask");
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const accounts = await provider.send("eth_accounts", []);
-        if (accounts.length !== 0) {
-          const signer = provider.getSigner();
-          const walletAddress = await signer.getAddress();
-          try {
-            dispatch({
-              type: types.SET_ACCOUNT,
-              payload: { account: walletAddress },
-            });
-          } catch {
-            dispatch({
-              type: types.ERROR,
-              payload: "No authorized account found",
-            });
-          }
-        }
-      };
-      checkWalletConnected();
-    }
-  }, [account]);
-
-  // ! If the user switches accounts or saleState is changed -
-  // ! it a re-render is fired
-  useEffect(() => {
-    if (window.ethereum) {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const reset = () => dispatch({ type: types.RESET_STATE });
-      window.ethereum.on("accountsChanged", reset);
-      const listenForSalesEvent = async () => {
-        const accounts = await provider.send("eth_accounts", []);
-        const signer = provider.getSigner();
-        const walletAddress = await signer.getAddress();
-        if (accounts !== 0) {
-          dispatch({
-            type: types.SET_ACCOUNT,
-            payload: { account: walletAddress },
-          });
-        }
-      };
-      listenForSalesEvent();
-      return () => {
-        window.ethereum.removeListener("accountsChanged", reset);
-      };
-    }
-  }, []);
-
-  // ! Resets state if the user cancels a transaction
-  useEffect(() => {
-    if (
-      [
-        "User rejected the request.",
-        "MetaMask Tx Signature: User denied transaction signature.",
-        "User rejected the transaction",
-        "User denied account authorization.",
-      ].includes(error.message)
-    ) {
-      dispatch({ type: types.RESET_STATE });
-    }
-  }, []);
 
   // ! Get discord credentials and save a version locally
   useEffect(() => {
@@ -184,6 +178,8 @@ const SSOButtons = () => {
         type: types.DISCORD_CONNECTED,
         payload: { discordCode: getDiscordCode || getLSDiscordCode },
       });
+      // ! Saves discord to local storage for the session because we're using multiple
+      // ! SSOs
       if (getDiscordCode) {
         localStorage.setItem("discord_code", getDiscordCode);
       }
@@ -196,11 +192,7 @@ const SSOButtons = () => {
     }
   }, [getDiscordCode]);
 
-  const cleanLS = (whitelisted) => {
-    localStorage.removeItem("discord_code");
-    localStorage.setItem("whitelisted", whitelisted);
-  };
-
+  // ! When twitter is connected, moves state forward
   useEffect(() => {
     if (getTwitterToken && getTwitterVerifier) {
       dispatch({
@@ -210,28 +202,124 @@ const SSOButtons = () => {
           twitterLoginVerifier: getTwitterVerifier,
         },
       });
-      // Check if the user is whitelisted
-      // delete discord_code from localStorage & update with whitelisted t/f
-      // post ()
-      // cleanLS(true);
     }
   }, [twitterLoginToken, twitterLoginVerifier]);
 
-  console.log(state);
+  // ! clears local storage
+  const cleanLS = async () => {
+    localStorage.removeItem("discord_code");
+    localStorage.removeItem("whitelisted");
+  };
+
+  // ! spin -> verify using codes -> remove discord ls, set whitelisted (holds the door) ->
+  // ! state moves forward, saves new states -> spinners done
+  const verify = async () => {
+    dispatch({ type: types.SPIN });
+    await axios
+      .post(twitterStepThree, {
+        discordCode: discordCode,
+        twitterToken: getTwitterToken,
+        twitterVerifier: getTwitterVerifier,
+      })
+      .then((res) => {
+        localStorage.removeItem("discord_code");
+        localStorage.setItem("whitelisted", res.data.success);
+        dispatch({
+          type: types.WHITELISTED,
+          payload: {
+            whitelisted: res.data.success,
+            discordUserName: res.data.discord.username,
+            twitterUserName: res.data.twitter.username,
+            twitterId: res.data.twitter.id,
+            discordRefreshToken: res.data.discord.refresh_token,
+            verified: true,
+          },
+        });
+      });
+    dispatch({ type: types.DONE_SPINNING });
+  };
+
+  // ! spins -> submits -> moves state forward -> spins done
+  const submit = async () => {
+    dispatch({ type: types.SPIN });
+    await axios
+      .post(submitURL, {
+        discordRefresh: discordRefreshToken,
+        twitterId: twitterId,
+        walletAddress: account,
+      })
+      .then((res) => {
+        dispatch({
+          type: types.SUBMITTED,
+          payload: {
+            submitted: res.data.success,
+          },
+        });
+      });
+    dispatch({ type: types.DONE_SPINNING });
+  };
+
+  // ! second route whitelist check
+  const whitelistedTwo = async (walletAddress) => {
+    dispatch({ type: types.SPIN });
+    await axios
+      .get(`https://793461f8173e.au.ngrok.io/allowlisted/${walletAddress}`)
+      .then((res) => {
+        console.log(res);
+        dispatch({
+          type: types.WHITELISTED_TWO,
+          payload: {
+            whitelisted_two: res.data.success,
+            twitterUserName: res.data.username,
+          },
+        });
+      });
+    dispatch({ type: types.DONE_SPINNING });
+  };
+
   return (
     <div className="flex flex-col">
-      <p>
+      {/* If you want to see the tokens */}
+      {/* <p>
         {discordCode} --- {twitterLoginToken} --- {twitterLoginVerifier}
-      </p>
-      <a href={discordUrl}>Connect Discord</a>
+      </p> */}
+      {!pathTwo && (
+        <a href={discordUrl}>
+          {discordConnected ? "Connected To Discord" : "Connect Discord"}
+        </a>
+      )}
       {(discordConnected || whitelisted) && (
-        <a href={twitterUrl}>Connect Twitter</a>
+        <a href={twitterUrl}>
+          {twitterConnected ? "Connected To Twitter" : "Connect Twitter"}
+        </a>
       )}
-      {twitterConnected && whitelisted === true && (
-        <button onClick={() => connectWallet()}>Connect MetaMask</button>
-      )}
+      {spinner && <h1>Spinner goes here</h1>}
       {whitelisted === false && <p>You are not on the whitelist</p>}
       <button onClick={() => cleanLS()}>Delete LS</button>
+      {discordConnected && twitterConnected && !verified && (
+        <button onClick={() => verify()}>Verify</button>
+      )}
+      {twitterConnected && whitelisted === true && (
+        <button onClick={() => connectWallet()} disabled={metamaskConnected}>
+          {!metamaskConnected ? "Connect MetaMask" : "MetaMask Connected"}
+        </button>
+      )}
+      {!discordConnected && (
+        <button onClick={() => dispatch({ type: types.PATH_TWO })}>
+          Already submitted your wallet?
+        </button>
+      )}
+      {pathTwo && (
+        <button onClick={() => connectWallet()} disabled={metamaskConnected}>
+          {!metamaskConnected ? "Connect MetaMask" : "MetaMask Connected"}
+        </button>
+      )}
+      {metamaskConnected && !pathTwo && !submitted && (
+        <button onClick={() => submit()}>Submit</button>
+      )}
+      {(submitted || whitelisted_two) && (
+        <a href={`${claimURL}${twitterUserName}`}>Claim Image A</a>
+      )}
     </div>
   );
 };
